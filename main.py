@@ -1157,8 +1157,8 @@ async def create_announcement(
     return {"message": "Announcement created successfully", "announcement_id": str(result.inserted_id)}
 
 # Department management routes
-@app.get("/api/v1/admin/departments", response_model=List[DepartmentResponse])
-async def get_departments(admin_user: dict = Depends(get_admin_user)):
+@app.get("/api/v1/departments", response_model=List[DepartmentResponse])
+async def get_departments():
     departments = []
     async for dept in departments_collection.find():
         dept_data = {**dept, "id": str(dept["_id"])}
