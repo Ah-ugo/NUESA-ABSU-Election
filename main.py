@@ -961,6 +961,10 @@ async def cast_vote(
 ):
     candidate_id = vote_data.candidate_id
 
+    # Validate candidate_id
+    if not ObjectId.is_valid(candidate_id):
+        raise HTTPException(status_code=400, detail="Invalid candidate_id: must be a valid ObjectId")
+
     candidate = await candidates_collection.find_one({"_id": ObjectId(candidate_id)})
     if not candidate:
         raise HTTPException(status_code=404, detail="Candidate not found")
@@ -1017,6 +1021,14 @@ async def cast_batch_votes(
             continue
 
         try:
+            # Validate candidate_id
+            if not ObjectId.is_valid(candidate_id):
+                failed_votes.append({
+                    "candidate_id": candidate_id,
+                    "error": "'candidate_id' is not a valid ObjectId, it must be a 12-byte input or a 24-character hex string"
+                })
+                continue
+
             candidate = await candidates_collection.find_one({"_id": ObjectId(candidate_id)})
             if not candidate:
                 failed_votes.append({"candidate_id": candidate_id, "error": "Candidate not found"})
