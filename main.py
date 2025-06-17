@@ -1178,8 +1178,8 @@ async def create_department(
     return {"message": "Department created successfully", "department_id": str(result.inserted_id)}
 
 # Level management routes
-@app.get("/api/v1/admin/levels", response_model=List[LevelResponse])
-async def get_levels(admin_user: dict = Depends(get_admin_user)):
+@app.get("/api/v1/levels", response_model=List[LevelResponse])
+async def get_levels():
     levels = []
     async for level in levels_collection.find():
         level_data = {**level, "id": str(level["_id"])}
