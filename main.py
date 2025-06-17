@@ -13,7 +13,7 @@ import cloudinary
 import cloudinary.uploader
 from bson import ObjectId
 import asyncio
-from pydantic import BaseModel, EmailStr, Field, field_serializer
+from pydantic import BaseModel, EmailStr, Field, field_serializer, field_validator
 
 # Load environment variables
 load_dotenv()
@@ -288,6 +288,18 @@ class VoteBase(BaseModel):
     election_id: str
     election_type: str
     department: Optional[str] = None
+
+    @field_validator('candidate_id')
+    def validate_candidate_id(cls, v):
+        if not ObjectId.is_valid(v):
+            raise ValueError("'candidate_id' must be a valid ObjectId (24-character hex string)")
+        return v
+
+    @field_validator('election_id')
+    def validate_election_id(cls, v):
+        if not ObjectId.is_valid(v):
+            raise ValueError("'election_id' must be a valid ObjectId (24-character hex string)")
+        return v
 
 class VoteCreate(VoteBase):
     pass
@@ -961,10 +973,6 @@ async def cast_vote(
 ):
     candidate_id = vote_data.candidate_id
 
-    # Validate candidate_id
-    if not ObjectId.is_valid(candidate_id):
-        raise HTTPException(status_code=400, detail="Invalid candidate_id: must be a valid ObjectId")
-
     candidate = await candidates_collection.find_one({"_id": ObjectId(candidate_id)})
     if not candidate:
         raise HTTPException(status_code=404, detail="Candidate not found")
@@ -972,6 +980,20 @@ async def cast_vote(
     election = await elections_collection.find_one({"_id": ObjectId(candidate["election_id"])})
     if not election:
         raise HTTPException(status_code=404, detail="Election not found")
+
+    # Validate election status
+    if election["status"] != "active":
+        raise HTTPException(status_code=400, detail="Election is not active")
+
+    # Validate election_type and department consistency
+    if vote_data.election_type != election["election_type"]:
+        raise HTTPException(status_code=400, detail="Election type mismatch")
+    if vote_data.election_id != str(election["_id"]):
+        raise HTTPException(status_code=400, detail="Election ID mismatch")
+    if vote_data.position != candidate["position"]:
+        raise HTTPException(status_code=400, detail="Position mismatch")
+    if vote_data.department != candidate["department"]:
+        raise HTTPException(status_code=400, detail="Department mismatch")
 
     if election["election_type"] == "departmental":
         if current_user["department"] != election["department"]:
@@ -1015,20 +1037,8 @@ async def cast_batch_votes(
     failed_votes = []
 
     for vote in votes:
-        candidate_id = vote.candidate_id
-        if not candidate_id:
-            failed_votes.append({"error": "Missing candidate_id"})
-            continue
-
         try:
-            # Validate candidate_id
-            if not ObjectId.is_valid(candidate_id):
-                failed_votes.append({
-                    "candidate_id": candidate_id,
-                    "error": "'candidate_id' is not a valid ObjectId, it must be a 12-byte input or a 24-character hex string"
-                })
-                continue
-
+            candidate_id = vote.candidate_id
             candidate = await candidates_collection.find_one({"_id": ObjectId(candidate_id)})
             if not candidate:
                 failed_votes.append({"candidate_id": candidate_id, "error": "Candidate not found"})
@@ -1037,6 +1047,25 @@ async def cast_batch_votes(
             election = await elections_collection.find_one({"_id": ObjectId(candidate["election_id"])})
             if not election:
                 failed_votes.append({"candidate_id": candidate_id, "error": "Election not found"})
+                continue
+
+            # Validate election status
+            if election["status"] != "active":
+                failed_votes.append({"candidate_id": candidate_id, "error": "Election is not active"})
+                continue
+
+            # Validate election_type and department consistency
+            if vote.election_type != election["election_type"]:
+                failed_votes.append({"candidate_id": candidate_id, "error": "Election type mismatch"})
+                continue
+            if vote.election_id != str(election["_id"]):
+                failed_votes.append({"candidate_id": candidate_id, "error": "Election ID mismatch"})
+                continue
+            if vote.position != candidate["position"]:
+                failed_votes.append({"candidate_id": candidate_id, "error": "Position mismatch"})
+                continue
+            if vote.department != candidate["department"]:
+                failed_votes.append({"candidate_id": candidate_id, "error": "Department mismatch"})
                 continue
 
             if election["election_type"] == "departmental":
@@ -1073,13 +1102,21 @@ async def cast_batch_votes(
 
             successful_votes.append({
                 "candidate_id": candidate_id,
-                "position": candidate["position"]
+                "position": candidate["position"],
+                "election_id": vote.election_id,
+                "election_type": vote.election_type,
+                "department": vote.department
             })
 
+        except ValueError as e:
+            failed_votes.append({
+                "candidate_id": vote.candidate_id,
+                "error": str(e)
+            })
         except Exception as e:
             failed_votes.append({
-                "candidate_id": candidate_id,
-                "error": str(e)
+                "candidate_id": vote.candidate_id,
+                "error": f"Unexpected error: {str(e)}"
             })
 
     return BatchVoteResponse(
