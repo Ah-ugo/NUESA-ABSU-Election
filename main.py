@@ -17,6 +17,11 @@ from bson import ObjectId
 from pydantic import BaseModel, EmailStr, Field, field_serializer, field_validator
 import smtplib
 from email.message import EmailMessage
+import logging
+from fastapi.responses import HTMLResponse
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 # Load environment variables
 load_dotenv()
@@ -45,14 +50,14 @@ SECRET_KEY = os.getenv("SECRET_KEY", "your-secret-key-here")
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 30
 RESET_TOKEN_EXPIRE_HOURS = 1
-BASE_URL = "https://nuesa-absu-election.onrender.com"  # Base URL for reset links
+BASE_URL = os.getenv("BASE_URL", "https://nuesa-absu-election.onrender.com")
 
 # SMTP Configuration
 SMTP_SERVER = os.getenv("SMTP_SERVER", "smtp.gmail.com")
 SMTP_PORT = int(os.getenv("SMTP_PORT", 587))
-SMTP_USERNAME = os.getenv("SMTP_USERNAME")
-SMTP_PASSWORD = os.getenv("SMTP_PASSWORD")
-SENDER_EMAIL = os.getenv("SENDER_EMAIL", SMTP_USERNAME)
+SMTP_USERNAME = os.getenv("EMAIL_USER")
+SMTP_PASSWORD = os.getenv("EMAIL_PASS")
+SENDER_EMAIL = os.getenv("EMAIL_USER", SMTP_USERNAME)
 
 # MongoDB connection
 MONGODB_URL = os.getenv("MONGODB_URL", "mongodb://localhost:27017")
@@ -531,7 +536,7 @@ def send_reset_email(to_email: str, reset_url: str):
             </p>
             <hr style="border: none; border-top: 1px solid #eeeeee; margin: 20px 0;">
             <p style="color: #999999; font-size: 12px; text-align: center;">
-                &copy; 2025 NUESA Voting System. All rights reserved.
+                © 2025 NUESA Voting System. All rights reserved.
             </p>
         </div>
     </body>
@@ -545,13 +550,26 @@ def send_reset_email(to_email: str, reset_url: str):
     msg["To"] = to_email
 
     try:
+        logger.info(f"Attempting to send reset email to {to_email}")
         with smtplib.SMTP(SMTP_SERVER, SMTP_PORT) as server:
             server.starttls()
+            logger.info(f"Connecting to SMTP server {SMTP_SERVER}:{SMTP_PORT}")
+            if not SMTP_USERNAME or not SMTP_PASSWORD:
+                logger.error("SMTP_USERNAME or SMTP_PASSWORD is not set")
+                raise HTTPException(status_code=500, detail="SMTP credentials not configured")
             server.login(SMTP_USERNAME, SMTP_PASSWORD)
+            logger.info("SMTP login successful")
             server.send_message(msg)
-    except Exception as e:
+            logger.info(f"Email sent successfully to {to_email}")
+    except smtplib.SMTPAuthenticationError as e:
+        logger.error(f"SMTP authentication failed: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to authenticate with SMTP server. Please check SMTP credentials.")
+    except smtplib.SMTPException as e:
+        logger.error(f"SMTP error occurred: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to send email: {str(e)}")
-
+    except Exception as e:
+        logger.error(f"Unexpected error while sending email: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Unexpected error while sending email: {str(e)}")
 # Routes
 @app.get("/")
 async def root():
@@ -651,7 +669,8 @@ async def login(credentials: AuthModel):
 async def forgot_password(request: ForgotPasswordRequest):
     user = await users_collection.find_one({"email": request.email})
     if not user:
-        # Return success to prevent email enumeration
+
+        logger.info(f"No user found for email {request.email}, returning success to prevent enumeration")
         return {"message": "If an account exists, a password reset link has been sent"}
 
     # Generate reset token
@@ -667,7 +686,7 @@ async def forgot_password(request: ForgotPasswordRequest):
         "used": False
     })
 
-    # Generate reset URL
+    # Generate reset URL using path parameter
     reset_url = f"{BASE_URL}/reset-password/{reset_token}"
 
     # Send email with reset URL
@@ -684,25 +703,141 @@ async def get_reset_password_form(request: Request, token: str):
         "expires_at": {"$gt": datetime.utcnow()}
     })
 
+    # Inline HTML content
     if not reset_token:
-        return templates.TemplateResponse(
-            "reset_password.html",
-            {
-                "request": request,
-                "token": token,
-                "error": "Invalid or expired reset token",
-                "api_base_url": BASE_URL
-            }
-        )
+        logger.warning(f"Invalid or expired reset token: {token}")
+        html_content = f"""
+        <!DOCTYPE html>
+        <html lang="en">
+        <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>Reset Password - NUESA Voting System</title>
+            <style>
+                body {{
+                    font-family: Arial, sans-serif;
+                    max-width: 600px;
+                    margin: 20px auto;
+                    padding: 20px;
+                    background-color: #f4f4f4;
+                }}
+                .container {{
+                    background-color: #ffffff;
+                    padding: 20px;
+                    border-radius: 8px;
+                    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+                }}
+                h2 {{
+                    color: #333333;
+                    text-align: center;
+                }}
+                .error {{
+                    color: red;
+                    text-align: center;
+                    margin-bottom: 15px;
+                }}
+                .footer {{
+                    text-align: center;
+                    color: #999999;
+                    font-size: 12px;
+                    margin-top: 20px;
+                }}
+            </style>
+        </head>
+        <body>
+            <div class="container">
+                <h2>Reset Your Password</h2>
+                <p class="error">Invalid or expired reset token. Please request a new password reset link.</p>
+                <div class="footer">
+                    © 2025 NUESA Voting System. All rights reserved.
+                </div>
+            </div>
+        </body>
+        </html>
+        """
+        return HTMLResponse(content=html_content, status_code=400)
 
-    return templates.TemplateResponse(
-        "reset_password.html",
-        {
-            "request": request,
-            "token": token,
-            "api_base_url": BASE_URL
-        }
-    )
+    logger.info(f"Rendering reset password form for valid token: {token}")
+    html_content = f"""
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Reset Password - NUESA Voting System</title>
+        <style>
+            body {{
+                font-family: Arial, sans-serif;
+                max-width: 600px;
+                margin: 20px auto;
+                padding: 20px;
+                background-color: #f4f4f4;
+            }}
+            .container {{
+                background-color: #ffffff;
+                padding: 20px;
+                border-radius: 8px;
+                box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            }}
+            h2 {{
+                color: #333333;
+                text-align: center;
+            }}
+            .form-group {{
+                margin-bottom: 15px;
+            }}
+            label {{
+                display: block;
+                margin-bottom: 5px;
+                color: #555555;
+            }}
+            input[type="password"] {{
+                width: 100%;
+                padding: 8px;
+                border: 1px solid #cccccc;
+                border-radius: 4px;
+                box-sizing: border-box;
+            }}
+            button {{
+                width: 100%;
+                padding: 10px;
+                background-color: #4f46e5;
+                color: #ffffff;
+                border: none;
+                border-radius: 4px;
+                cursor: pointer;
+                font-weight: bold;
+            }}
+            button:hover {{
+                background-color: #4338ca;
+            }}
+            .footer {{
+                text-align: center;
+                color: #999999;
+                font-size: 12px;
+                margin-top: 20px;
+            }}
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <h2>Reset Your Password</h2>
+            <form method="POST" action="{BASE_URL}/api/v1/auth/reset-password">
+                <input type="hidden" name="token" value="{token}">
+                <div class="form-group">
+                    <label for="new_password">New Password</label>
+                    <input type="password" id="new_password" name="new_password" required minlength="8">
+                </div>
+                <button type="submit">Reset Password</button>
+            </form>
+            <div class="footer">
+                © 2025 NUESA Voting System. All rights reserved.
+            </div>
+        </div>
+    </body>
+    </html>
+    """
+    return HTMLResponse(content=html_content)
 
 @app.post("/api/v1/auth/reset-password", response_model=dict)
 async def reset_password(request: ResetPasswordRequest):
