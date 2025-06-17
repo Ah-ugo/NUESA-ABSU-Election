@@ -1,17 +1,22 @@
-from fastapi import FastAPI, HTTPException, Depends, status, File, UploadFile, Form
+from fastapi import FastAPI, HTTPException, Depends, status, File, UploadFile, Form, Request
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.templating import Jinja2Templates
+from fastapi.responses import HTMLResponse
 from motor.motor_asyncio import AsyncIOMotorClient
 from passlib.context import CryptContext
 from jose import JWTError, jwt
 from datetime import datetime, timedelta
 from typing import Optional, List, Dict
 import os
+import secrets
 from dotenv import load_dotenv
 import cloudinary
 import cloudinary.uploader
 from bson import ObjectId
 from pydantic import BaseModel, EmailStr, Field, field_serializer, field_validator
+import smtplib
+from email.message import EmailMessage
 
 # Load environment variables
 load_dotenv()
@@ -28,6 +33,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Jinja2 templates
+templates = Jinja2Templates(directory="templates")
+
 # Security
 security = HTTPBearer()
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
@@ -36,6 +44,15 @@ pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 SECRET_KEY = os.getenv("SECRET_KEY", "your-secret-key-here")
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 30
+RESET_TOKEN_EXPIRE_HOURS = 1
+BASE_URL = os.getenv("BASE_URL", "http://localhost:8000")  # Base URL for reset links
+
+# SMTP Configuration
+SMTP_SERVER = os.getenv("SMTP_SERVER", "smtp.gmail.com")
+SMTP_PORT = int(os.getenv("SMTP_PORT", 587))
+SMTP_USERNAME = os.getenv("SMTP_USERNAME")
+SMTP_PASSWORD = os.getenv("SMTP_PASSWORD")
+SENDER_EMAIL = os.getenv("SENDER_EMAIL", SMTP_USERNAME)
 
 # MongoDB connection
 MONGODB_URL = os.getenv("MONGODB_URL", "mongodb://localhost:27017")
@@ -59,6 +76,7 @@ levels_collection = db.levels
 announcements_collection = db.announcements
 election_types_collection = db.election_types
 positions_collection = db.positions
+password_reset_tokens_collection = db.password_reset_tokens
 
 # Pydantic Models
 class PyObjectId(ObjectId):
@@ -82,7 +100,7 @@ class PyObjectId(ObjectId):
 class UserBase(BaseModel):
     firstName: str
     lastName: str
-    email: str
+    email: EmailStr
     matricNumber: str
     department: str
     level: str
@@ -122,7 +140,7 @@ class UserResponse(UserBase):
     created_at: datetime
     updated_at: datetime
 
-# Authentication Model
+# Authentication Models
 class AuthModel(BaseModel):
     matricNumber: str
     password: str
@@ -131,6 +149,13 @@ class Token(BaseModel):
     access_token: str
     token_type: str
     user: UserResponse
+
+class ForgotPasswordRequest(BaseModel):
+    email: EmailStr
+
+class ResetPasswordRequest(BaseModel):
+    token: str
+    new_password: str
 
 # Election Models
 class ElectionBase(BaseModel):
@@ -469,6 +494,64 @@ def upload_to_cloudinary(file_content, folder="nuesa_voting"):
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Image upload failed: {str(e)}")
 
+def generate_reset_token():
+    return secrets.token_urlsafe(32)
+
+def send_reset_email(to_email: str, reset_url: str):
+    msg = EmailMessage()
+    msg.set_content("Please use the following link to reset your password: " + reset_url)  # Plain text fallback
+
+    # Inline HTML email content
+    html_content = """
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Password Reset</title>
+    </head>
+    <body style="font-family: Arial, sans-serif; margin: 0; padding: 0; background-color: #f4f4f4;">
+        <div style="max-width: 600px; margin: 20px auto; background-color: #ffffff; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+            <h2 style="color: #333333; text-align: center;">Password Reset Request</h2>
+            <p style="color: #555555; line-height: 1.6;">
+                Dear User,
+            </p>
+            <p style="color: #555555; line-height: 1.6;">
+                You have requested a password reset for your NUESA Voting System account. Please click the button below to reset your password:
+            </p>
+            <div style="text-align: center; margin: 20px 0;">
+                <a href="{}" style="display: inline-block; padding: 10px 20px; background-color: #4f46e5; color: #ffffff; text-decoration: none; border-radius: 4px; font-weight: bold;">Reset Password</a>
+            </div>
+            <p style="color: #555555; line-height: 1.6;">
+                This link will expire in 1 hour. If you did not request a password reset, please ignore this email or contact support.
+            </p>
+            <p style="color: #555555; line-height: 1.6;">
+                Best regards,<br>
+                NUESA Voting System Team
+            </p>
+            <hr style="border: none; border-top: 1px solid #eeeeee; margin: 20px 0;">
+            <p style="color: #999999; font-size: 12px; text-align: center;">
+                &copy; 2025 NUESA Voting System. All rights reserved.
+            </p>
+        </div>
+    </body>
+    </html>
+    """.format(reset_url)
+
+    msg.add_alternative(html_content, subtype="html")
+
+    msg["Subject"] = "Password Reset Request - NUESA Voting System"
+    msg["From"] = SENDER_EMAIL
+    msg["To"] = to_email
+
+    try:
+        with smtplib.SMTP(SMTP_SERVER, SMTP_PORT) as server:
+            server.starttls()
+            server.login(SMTP_USERNAME, SMTP_PASSWORD)
+            server.send_message(msg)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to send email: {str(e)}")
+
 # Routes
 @app.get("/")
 async def root():
@@ -564,6 +647,102 @@ async def login(credentials: AuthModel):
         "user": user_response
     }
 
+@app.post("/api/v1/auth/forgot-password", response_model=dict)
+async def forgot_password(request: ForgotPasswordRequest):
+    user = await users_collection.find_one({"email": request.email})
+    if not user:
+        # Return success to prevent email enumeration
+        return {"message": "If an account exists, a password reset link has been sent"}
+
+    # Generate reset token
+    reset_token = generate_reset_token()
+    expires_at = datetime.utcnow() + timedelta(hours=RESET_TOKEN_EXPIRE_HOURS)
+
+    # Store reset token in database
+    await password_reset_tokens_collection.insert_one({
+        "user_id": str(user["_id"]),
+        "token": reset_token,
+        "expires_at": expires_at,
+        "created_at": datetime.utcnow(),
+        "used": False
+    })
+
+    # Generate reset URL
+    reset_url = f"{BASE_URL}/reset-password/{reset_token}"
+
+    # Send email with reset URL
+    send_reset_email(request.email, reset_url)
+
+    return {"message": "Password reset link sent to your email"}
+
+@app.get("/reset-password/{token}", response_class=HTMLResponse)
+async def get_reset_password_form(request: Request, token: str):
+    # Validate token
+    reset_token = await password_reset_tokens_collection.find_one({
+        "token": token,
+        "used": False,
+        "expires_at": {"$gt": datetime.utcnow()}
+    })
+
+    if not reset_token:
+        return templates.TemplateResponse(
+            "reset_password.html",
+            {
+                "request": request,
+                "token": token,
+                "error": "Invalid or expired reset token",
+                "api_base_url": BASE_URL
+            }
+        )
+
+    return templates.TemplateResponse(
+        "reset_password.html",
+        {
+            "request": request,
+            "token": token,
+            "api_base_url": BASE_URL
+        }
+    )
+
+@app.post("/api/v1/auth/reset-password", response_model=dict)
+async def reset_password(request: ResetPasswordRequest):
+    if not request.new_password:
+        raise HTTPException(status_code=400, detail="New password is required")
+
+    # Find valid reset token
+    reset_token = await password_reset_tokens_collection.find_one({
+        "token": request.token,
+        "used": False,
+        "expires_at": {"$gt": datetime.utcnow()}
+    })
+
+    if not reset_token:
+        raise HTTPException(status_code=400, detail="Invalid or expired reset token")
+
+    # Mark token as used
+    await password_reset_tokens_collection.update_one(
+        {"_id": reset_token["_id"]},
+        {"$set": {"used": True, "updated_at": datetime.utcnow()}}
+    )
+
+    # Update user's password
+    hashed_password = get_password_hash(request.new_password)
+    result = await users_collection.update_one(
+        {"_id": ObjectId(reset_token["user_id"])},
+        {"$set": {"password": hashed_password, "updated_at": datetime.utcnow()}}
+    )
+
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    return {"message": "Password reset successfully"}
+
+# User routes
+@app.get("/api/v1/users/me", response_model=UserResponse)
+async def get_current_user_info(current_user: dict = Depends(get_current_user)):
+    # Convert MongoDB document to match UserResponse schema
+    user_data = {**current_user, "id": str(current_user["_id"])}
+    return UserResponse(**user_data)
 
 @app.put("/api/v1/users/profile", response_model=UserResponse)
 async def update_user_profile(
@@ -619,13 +798,6 @@ async def update_user_profile(
     # Fetch updated user
     updated_user = await users_collection.find_one({"_id": ObjectId(current_user["_id"])})
     user_data = {**updated_user, "id": str(updated_user["_id"])}
-    return UserResponse(**user_data)
-
-# User routes
-@app.get("/api/v1/users/me", response_model=UserResponse)
-async def get_current_user_info(current_user: dict = Depends(get_current_user)):
-    # Convert MongoDB document to match UserResponse schema
-    user_data = {**current_user, "id": str(current_user["_id"])}
     return UserResponse(**user_data)
 
 # Election routes
