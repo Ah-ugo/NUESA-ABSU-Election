@@ -100,7 +100,7 @@ class PyObjectId(ObjectId):
 class UserBase(BaseModel):
     firstName: str
     lastName: str
-    email: EmailStr
+    email: str
     matricNumber: str
     department: str
     level: str
@@ -112,7 +112,7 @@ class UserCreate(UserBase):
 class UserUpdate(BaseModel):
     firstName: Optional[str] = None
     lastName: Optional[str] = None
-    email: Optional[EmailStr] = None
+    email: Optional[str] = None
     level: Optional[str] = None
     profileImage: Optional[str] = None
 
