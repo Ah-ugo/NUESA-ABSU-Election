@@ -45,7 +45,7 @@ SECRET_KEY = os.getenv("SECRET_KEY", "your-secret-key-here")
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 30
 RESET_TOKEN_EXPIRE_HOURS = 1
-BASE_URL = os.getenv("BASE_URL", "http://localhost:8000")  # Base URL for reset links
+BASE_URL = "https://nuesa-absu-election.onrender.com"  # Base URL for reset links
 
 # SMTP Configuration
 SMTP_SERVER = os.getenv("SMTP_SERVER", "smtp.gmail.com")
