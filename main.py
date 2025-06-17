@@ -1052,7 +1052,6 @@ async def cast_batch_votes(
                 failed_votes.append({"candidate_id": candidate_id, "error": "Election is not active"})
                 continue
 
-
             # Validate election_type and department consistency
             if vote.election_type != election["election_type"]:
                 failed_votes.append({"candidate_id": candidate_id, "error": "Election type mismatch"})
