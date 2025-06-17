@@ -91,6 +91,13 @@ class UserCreate(UserBase):
     password: str
     profileImage: Optional[str] = None
 
+class UserUpdate(BaseModel):
+    firstName: Optional[str] = None
+    lastName: Optional[str] = None
+    email: Optional[EmailStr] = None
+    level: Optional[str] = None
+    profileImage: Optional[str] = None
+
 class UserInDB(UserBase):
     password: str
     profileImage: Optional[str] = None
@@ -556,6 +563,63 @@ async def login(credentials: AuthModel):
         "token_type": "bearer",
         "user": user_response
     }
+
+
+@app.put("/api/v1/users/profile", response_model=UserResponse)
+async def update_user_profile(
+        firstName: Optional[str] = Form(None),
+        lastName: Optional[str] = Form(None),
+        email: Optional[str] = Form(None),
+        level: Optional[str] = Form(None),
+        profileImage: Optional[UploadFile] = File(None),
+        current_user: dict = Depends(get_current_user)
+):
+    update_data = UserUpdate(
+        firstName=firstName,
+        lastName=lastName,
+        email=email,
+        level=level,
+        profileImage=None
+    ).dict(exclude_unset=True)
+
+    # Validate email if provided
+    if "email" in update_data:
+        existing_user = await users_collection.find_one({
+            "email": update_data["email"],
+            "_id": {"$ne": ObjectId(current_user["_id"])}
+        })
+        if existing_user:
+            raise HTTPException(status_code=400, detail="Email already in use")
+
+    # Validate level if provided
+    if "level" in update_data:
+        level_exists = await levels_collection.find_one({"name": update_data["level"]})
+        if not level_exists:
+            raise HTTPException(status_code=400, detail="Invalid level")
+
+    # Handle profile image upload
+    if profileImage:
+        file_content = await profileImage.read()
+        profile_image_url = upload_to_cloudinary(file_content, "profiles")
+        update_data["profileImage"] = profile_image_url
+
+    if not update_data:
+        raise HTTPException(status_code=400, detail="No fields provided for update")
+
+    update_data["updated_at"] = datetime.utcnow()
+
+    result = await users_collection.update_one(
+        {"_id": ObjectId(current_user["_id"])},
+        {"$set": update_data}
+    )
+
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    # Fetch updated user
+    updated_user = await users_collection.find_one({"_id": ObjectId(current_user["_id"])})
+    user_data = {**updated_user, "id": str(updated_user["_id"])}
+    return UserResponse(**user_data)
 
 # User routes
 @app.get("/api/v1/users/me", response_model=UserResponse)
