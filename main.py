@@ -1,7 +1,6 @@
-from fastapi import FastAPI, Depends, HTTPException, status, File, UploadFile, Form
+from fastapi import FastAPI, HTTPException, Depends, status, File, UploadFile, Form
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
 from motor.motor_asyncio import AsyncIOMotorClient
 from passlib.context import CryptContext
 from jose import JWTError, jwt
@@ -12,7 +11,6 @@ from dotenv import load_dotenv
 import cloudinary
 import cloudinary.uploader
 from bson import ObjectId
-import asyncio
 from pydantic import BaseModel, EmailStr, Field, field_serializer, field_validator
 
 # Load environment variables
@@ -1009,7 +1007,7 @@ async def cast_vote(
     })
 
     if existing_vote:
-        raise HTTPException(status_code=400, detail="You have already voted for this position in this election")
+        raise HTTPException(status_code=400, detail=f"Already voted for {candidate['position']} in this election")
 
     vote_record = vote_data.dict()
     vote_record["user_id"] = str(current_user["_id"])
@@ -1119,13 +1117,22 @@ async def cast_batch_votes(
                 "error": f"Unexpected error: {str(e)}"
             })
 
-    return BatchVoteResponse(
+    response = BatchVoteResponse(
         message=f"Processed {len(votes)} votes",
         successful=len(successful_votes),
         failed=len(failed_votes),
         successful_votes=successful_votes,
         failed_votes=failed_votes
     )
+
+    # If all votes failed, raise a 400 Bad Request
+    if response.failed > 0 and response.successful == 0:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=response.dict()
+        )
+
+    return response
 
 @app.get("/api/v1/votes/status", response_model=VotingStatusResponse)
 async def get_voting_status(
