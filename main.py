@@ -1,25 +1,25 @@
-from fastapi import FastAPI, HTTPException, Depends, status, File, UploadFile, Form, Request
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.templating import Jinja2Templates
-from fastapi.responses import HTMLResponse
-from motor.motor_asyncio import AsyncIOMotorClient
-from passlib.context import CryptContext
-from jose import JWTError, jwt
-from datetime import datetime, timedelta
-from typing import Optional, List, Dict
+import logging
 import os
 import secrets
-from dotenv import load_dotenv
+from datetime import datetime, timedelta
+from typing import Optional, List, Dict
+
 import cloudinary
 import cloudinary.uploader
-from bson import ObjectId
-from pydantic import BaseModel, EmailStr, Field, field_serializer, field_validator
 import smtplib
+from bson import ObjectId
 from email.message import EmailMessage
-import logging
+from fastapi import FastAPI, HTTPException, Depends, status, File, UploadFile, Form, Request
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from jose import JWTError, jwt
+from motor.motor_asyncio import AsyncIOMotorClient
+from passlib.context import CryptContext
+from pydantic import BaseModel, EmailStr, Field, field_serializer, field_validator
+from dotenv import load_dotenv
 
+# Set up logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
@@ -38,9 +38,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Jinja2 templates
-templates = Jinja2Templates(directory="templates")
-
 # Security
 security = HTTPBearer()
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
@@ -54,7 +51,7 @@ BASE_URL = os.getenv("BASE_URL", "https://nuesa-absu-election.onrender.com")
 
 # SMTP Configuration
 SMTP_SERVER = os.getenv("SMTP_SERVER", "smtp.gmail.com")
-SMTP_PORT = int(os.getenv("SMTP_PORT", 587))
+SMTP_PORT = 465  # Hardcode to port 465 for SSL
 SMTP_USERNAME = os.getenv("EMAIL_USER")
 SMTP_PASSWORD = os.getenv("EMAIL_PASS")
 SENDER_EMAIL = os.getenv("EMAIL_USER", SMTP_USERNAME)
@@ -83,6 +80,7 @@ election_types_collection = db.election_types
 positions_collection = db.positions
 password_reset_tokens_collection = db.password_reset_tokens
 
+
 # Pydantic Models
 class PyObjectId(ObjectId):
     @classmethod
@@ -101,6 +99,7 @@ class PyObjectId(ObjectId):
         schema.update(type="string")
         return schema
 
+
 # User Models
 class UserBase(BaseModel):
     firstName: str
@@ -110,9 +109,11 @@ class UserBase(BaseModel):
     department: str
     level: str
 
+
 class UserCreate(UserBase):
     password: str
     profileImage: Optional[str] = None
+
 
 class UserUpdate(BaseModel):
     firstName: Optional[str] = None
@@ -120,6 +121,7 @@ class UserUpdate(BaseModel):
     email: Optional[str] = None
     level: Optional[str] = None
     profileImage: Optional[str] = None
+
 
 class UserInDB(UserBase):
     password: str
@@ -138,6 +140,7 @@ class UserInDB(UserBase):
         arbitrary_types_allowed = True
         json_encoders = {ObjectId: str}
 
+
 class UserResponse(UserBase):
     id: str
     profileImage: Optional[str] = None
@@ -145,22 +148,27 @@ class UserResponse(UserBase):
     created_at: datetime
     updated_at: datetime
 
+
 # Authentication Models
 class AuthModel(BaseModel):
     matricNumber: str
     password: str
+
 
 class Token(BaseModel):
     access_token: str
     token_type: str
     user: UserResponse
 
+
 class ForgotPasswordRequest(BaseModel):
     email: EmailStr
+
 
 class ResetPasswordRequest(BaseModel):
     token: str
     new_password: str
+
 
 # Election Models
 class ElectionBase(BaseModel):
@@ -170,9 +178,11 @@ class ElectionBase(BaseModel):
     end_date: datetime
     status: str = "pending"
 
+
 class ElectionCreate(ElectionBase):
     election_type: str
     department: Optional[str] = None
+
 
 class ElectionUpdate(BaseModel):
     title: Optional[str] = None
@@ -182,6 +192,7 @@ class ElectionUpdate(BaseModel):
     status: Optional[str] = None
     election_type: Optional[str] = None
     department: Optional[str] = None
+
 
 class ElectionInDB(ElectionBase):
     id: PyObjectId = Field(default_factory=PyObjectId, alias="_id")
@@ -200,6 +211,7 @@ class ElectionInDB(ElectionBase):
         arbitrary_types_allowed = True
         json_encoders = {ObjectId: str}
 
+
 class ElectionResponse(ElectionBase):
     id: str
     election_type: str
@@ -208,19 +220,23 @@ class ElectionResponse(ElectionBase):
     updated_at: datetime
     created_by: str
 
+
 # Election Type Models
 class ElectionTypeBase(BaseModel):
     key: str
     name: str
     description: Optional[str] = None
 
+
 class ElectionTypeCreate(ElectionTypeBase):
     pass
+
 
 class ElectionTypeUpdate(BaseModel):
     key: Optional[str] = None
     name: Optional[str] = None
     description: Optional[str] = None
+
 
 class ElectionTypeInDB(ElectionTypeBase):
     id: PyObjectId = Field(default_factory=PyObjectId, alias="_id")
@@ -237,11 +253,13 @@ class ElectionTypeInDB(ElectionTypeBase):
         arbitrary_types_allowed = True
         json_encoders = {ObjectId: str}
 
+
 class ElectionTypeResponse(ElectionTypeBase):
     id: str
     created_at: datetime
     updated_at: datetime
     created_by: str
+
 
 # Position Models
 class PositionBase(BaseModel):
@@ -249,13 +267,16 @@ class PositionBase(BaseModel):
     election_type: str
     department: Optional[str] = None
 
+
 class PositionCreate(PositionBase):
     pass
+
 
 class PositionUpdate(BaseModel):
     name: Optional[str] = None
     election_type: Optional[str] = None
     department: Optional[str] = None
+
 
 class PositionInDB(PositionBase):
     id: PyObjectId = Field(default_factory=PyObjectId, alias="_id")
@@ -272,11 +293,13 @@ class PositionInDB(PositionBase):
         arbitrary_types_allowed = True
         json_encoders = {ObjectId: str}
 
+
 class PositionResponse(PositionBase):
     id: str
     created_at: datetime
     updated_at: datetime
     created_by: str
+
 
 # Candidate Models
 class CandidateBase(BaseModel):
@@ -288,8 +311,10 @@ class CandidateBase(BaseModel):
     level: str
     manifesto: str
 
+
 class CandidateCreate(CandidateBase):
     photo: Optional[str] = None
+
 
 class CandidateInDB(CandidateBase):
     id: PyObjectId = Field(default_factory=PyObjectId, alias="_id")
@@ -308,6 +333,7 @@ class CandidateInDB(CandidateBase):
         arbitrary_types_allowed = True
         json_encoders = {ObjectId: str}
 
+
 class CandidateResponse(CandidateBase):
     id: str
     photo: Optional[str] = None
@@ -315,6 +341,7 @@ class CandidateResponse(CandidateBase):
     created_at: datetime
     updated_at: datetime
     created_by: str
+
 
 # Vote Models
 class VoteBase(BaseModel):
@@ -336,8 +363,10 @@ class VoteBase(BaseModel):
             raise ValueError("'election_id' must be a valid ObjectId (24-character hex string)")
         return v
 
+
 class VoteCreate(VoteBase):
     pass
+
 
 class VoteInDB(VoteBase):
     id: PyObjectId = Field(default_factory=PyObjectId, alias="_id")
@@ -353,8 +382,10 @@ class VoteInDB(VoteBase):
         arbitrary_types_allowed = True
         json_encoders = {ObjectId: str}
 
+
 class BatchVoteCreate(BaseModel):
     votes: List[VoteCreate]
+
 
 class BatchVoteResponse(BaseModel):
     message: str
@@ -363,9 +394,11 @@ class BatchVoteResponse(BaseModel):
     successful_votes: List[Dict]
     failed_votes: List[Dict]
 
+
 class VotingStatusResponse(BaseModel):
     voted_positions: List[str]
     total_votes: int
+
 
 # Announcement Models
 class AnnouncementBase(BaseModel):
@@ -373,8 +406,10 @@ class AnnouncementBase(BaseModel):
     content: str
     priority: Optional[str] = "normal"
 
+
 class AnnouncementCreate(AnnouncementBase):
     pass
+
 
 class AnnouncementInDB(AnnouncementBase):
     id: PyObjectId = Field(default_factory=PyObjectId, alias="_id")
@@ -390,18 +425,22 @@ class AnnouncementInDB(AnnouncementBase):
         arbitrary_types_allowed = True
         json_encoders = {ObjectId: str}
 
+
 class AnnouncementResponse(AnnouncementBase):
     id: str
     created_at: datetime
     created_by: str
+
 
 # Department Models
 class DepartmentBase(BaseModel):
     name: str
     faculty: Optional[str] = None
 
+
 class DepartmentCreate(DepartmentBase):
     pass
+
 
 class DepartmentInDB(DepartmentBase):
     id: PyObjectId = Field(default_factory=PyObjectId, alias="_id")
@@ -416,16 +455,20 @@ class DepartmentInDB(DepartmentBase):
         arbitrary_types_allowed = True
         json_encoders = {ObjectId: str}
 
+
 class DepartmentResponse(DepartmentBase):
     id: str
     created_at: datetime
+
 
 # Level Models
 class LevelBase(BaseModel):
     name: str
 
+
 class LevelCreate(LevelBase):
     pass
+
 
 class LevelInDB(LevelBase):
     id: PyObjectId = Field(default_factory=PyObjectId, alias="_id")
@@ -440,16 +483,20 @@ class LevelInDB(LevelBase):
         arbitrary_types_allowed = True
         json_encoders = {ObjectId: str}
 
+
 class LevelResponse(LevelBase):
     id: str
     created_at: datetime
+
 
 # Utility functions
 def verify_password(plain_password, hashed_password):
     return pwd_context.verify(plain_password, hashed_password)
 
+
 def get_password_hash(password):
     return pwd_context.hash(password)
+
 
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
     to_encode = data.copy()
@@ -460,6 +507,7 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
     to_encode.update({"exp": expire})
     encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
     return encoded_jwt
+
 
 async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)):
     credentials_exception = HTTPException(
@@ -480,6 +528,7 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
         raise credentials_exception
     return user
 
+
 async def get_admin_user(current_user: dict = Depends(get_current_user)):
     if not current_user.get("is_admin", False):
         raise HTTPException(
@@ -487,6 +536,7 @@ async def get_admin_user(current_user: dict = Depends(get_current_user)):
             detail="Not enough permissions"
         )
     return current_user
+
 
 def upload_to_cloudinary(file_content, folder="nuesa_voting"):
     try:
@@ -499,8 +549,10 @@ def upload_to_cloudinary(file_content, folder="nuesa_voting"):
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Image upload failed: {str(e)}")
 
+
 def generate_reset_token():
     return secrets.token_urlsafe(32)
+
 
 def send_reset_email(to_email: str, reset_url: str):
     msg = EmailMessage()
@@ -551,29 +603,47 @@ def send_reset_email(to_email: str, reset_url: str):
 
     try:
         logger.info(f"Attempting to send reset email to {to_email}")
-        with smtplib.SMTP(SMTP_SERVER, SMTP_PORT) as server:
-            server.starttls()
-            logger.info(f"Connecting to SMTP server {SMTP_SERVER}:{SMTP_PORT}")
-            if not SMTP_USERNAME or not SMTP_PASSWORD:
-                logger.error("SMTP_USERNAME or SMTP_PASSWORD is not set")
-                raise HTTPException(status_code=500, detail="SMTP credentials not configured")
+        logger.info(
+            f"SMTP settings: server={SMTP_SERVER}, port={SMTP_PORT}, username={SMTP_USERNAME}, password={'*' * len(SMTP_PASSWORD) if SMTP_PASSWORD else 'Not set'}")
+
+        if not SMTP_USERNAME or not SMTP_PASSWORD:
+            logger.error("SMTP_USERNAME or SMTP_PASSWORD is not set")
+            raise HTTPException(status_code=500, detail="SMTP credentials not configured")
+
+        # Use SMTP_SSL for port 465
+        server = smtplib.SMTP_SSL(SMTP_SERVER, SMTP_PORT, timeout=30)
+        logger.info(f"Connecting to {SMTP_SERVER}:{SMTP_PORT} with SSL")
+
+        try:
             server.login(SMTP_USERNAME, SMTP_PASSWORD)
             logger.info("SMTP login successful")
             server.send_message(msg)
             logger.info(f"Email sent successfully to {to_email}")
+        finally:
+            server.quit()
     except smtplib.SMTPAuthenticationError as e:
         logger.error(f"SMTP authentication failed: {str(e)}")
-        raise HTTPException(status_code=500, detail="Failed to authenticate with SMTP server. Please check SMTP credentials.")
+        raise HTTPException(status_code=500,
+                            detail="Failed to authenticate with SMTP server. Please check SMTP credentials.")
+    except smtplib.SMTPConnectError as e:
+        logger.error(f"SMTP connection error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to connect to SMTP server: {str(e)}")
+    except TimeoutError as e:
+        logger.error(f"SMTP timeout error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"SMTP connection timed out: {str(e)}")
     except smtplib.SMTPException as e:
         logger.error(f"SMTP error occurred: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to send email: {str(e)}")
     except Exception as e:
-        logger.error(f"Unexpected error while sending email: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Unexpected error while sending email: {str(e)}")
+        logger.error(f"Failed to send email: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to send email: {str(e)}")
+
+
 # Routes
 @app.get("/")
 async def root():
     return {"message": "NUESA Voting System API"}
+
 
 # Authentication routes
 @app.post("/api/v1/auth/register", response_model=dict)
@@ -631,6 +701,7 @@ async def register(
 
     return {"message": "User registered successfully", "user_id": str(result.inserted_id)}
 
+
 @app.post("/api/v1/auth/login", response_model=Token)
 async def login(credentials: AuthModel):
     matric_number = credentials.matricNumber
@@ -655,7 +726,6 @@ async def login(credentials: AuthModel):
         data={"sub": str(user["_id"])}, expires_delta=access_token_expires
     )
 
-    # Convert MongoDB document to match UserResponse schema
     user_data = {**user, "id": str(user["_id"])}
     user_response = UserResponse(**user_data)
 
@@ -665,19 +735,17 @@ async def login(credentials: AuthModel):
         "user": user_response
     }
 
+
 @app.post("/api/v1/auth/forgot-password", response_model=dict)
 async def forgot_password(request: ForgotPasswordRequest):
     user = await users_collection.find_one({"email": request.email})
     if not user:
-
         logger.info(f"No user found for email {request.email}, returning success to prevent enumeration")
         return {"message": "If an account exists, a password reset link has been sent"}
 
-    # Generate reset token
     reset_token = generate_reset_token()
     expires_at = datetime.utcnow() + timedelta(hours=RESET_TOKEN_EXPIRE_HOURS)
 
-    # Store reset token in database
     await password_reset_tokens_collection.insert_one({
         "user_id": str(user["_id"]),
         "token": reset_token,
@@ -686,24 +754,20 @@ async def forgot_password(request: ForgotPasswordRequest):
         "used": False
     })
 
-    # Generate reset URL using path parameter
     reset_url = f"{BASE_URL}/reset-password/{reset_token}"
-
-    # Send email with reset URL
     send_reset_email(request.email, reset_url)
 
     return {"message": "Password reset link sent to your email"}
 
+
 @app.get("/reset-password/{token}", response_class=HTMLResponse)
 async def get_reset_password_form(request: Request, token: str):
-    # Validate token
     reset_token = await password_reset_tokens_collection.find_one({
         "token": token,
         "used": False,
         "expires_at": {"$gt": datetime.utcnow()}
     })
 
-    # Inline HTML content
     if not reset_token:
         logger.warning(f"Invalid or expired reset token: {token}")
         html_content = f"""
@@ -839,12 +903,13 @@ async def get_reset_password_form(request: Request, token: str):
     """
     return HTMLResponse(content=html_content)
 
+
 @app.post("/api/v1/auth/reset-password", response_model=dict)
 async def reset_password(request: ResetPasswordRequest):
-    if not request.new_password:
-        raise HTTPException(status_code=400, detail="New password is required")
+    if not request.new_password or len(request.new_password) < 8:
+        logger.error("Password validation failed: less than 8 characters")
+        raise HTTPException(status_code=400, detail="Password must be at least 8 characters long")
 
-    # Find valid reset token
     reset_token = await password_reset_tokens_collection.find_one({
         "token": request.token,
         "used": False,
@@ -852,15 +917,14 @@ async def reset_password(request: ResetPasswordRequest):
     })
 
     if not reset_token:
+        logger.warning(f"Invalid or expired reset token: {request.token}")
         raise HTTPException(status_code=400, detail="Invalid or expired reset token")
 
-    # Mark token as used
     await password_reset_tokens_collection.update_one(
         {"_id": reset_token["_id"]},
         {"$set": {"used": True, "updated_at": datetime.utcnow()}}
     )
 
-    # Update user's password
     hashed_password = get_password_hash(request.new_password)
     result = await users_collection.update_one(
         {"_id": ObjectId(reset_token["user_id"])},
@@ -868,16 +932,19 @@ async def reset_password(request: ResetPasswordRequest):
     )
 
     if result.matched_count == 0:
+        logger.error(f"User not found for user_id: {reset_token['user_id']}")
         raise HTTPException(status_code=404, detail="User not found")
 
+    logger.info(f"Password reset successfully for user_id: {reset_token['user_id']}")
     return {"message": "Password reset successfully"}
+
 
 # User routes
 @app.get("/api/v1/users/me", response_model=UserResponse)
 async def get_current_user_info(current_user: dict = Depends(get_current_user)):
-    # Convert MongoDB document to match UserResponse schema
     user_data = {**current_user, "id": str(current_user["_id"])}
     return UserResponse(**user_data)
+
 
 @app.put("/api/v1/users/profile", response_model=UserResponse)
 async def update_user_profile(
@@ -896,7 +963,6 @@ async def update_user_profile(
         profileImage=None
     ).dict(exclude_unset=True)
 
-    # Validate email if provided
     if "email" in update_data:
         existing_user = await users_collection.find_one({
             "email": update_data["email"],
@@ -905,13 +971,11 @@ async def update_user_profile(
         if existing_user:
             raise HTTPException(status_code=400, detail="Email already in use")
 
-    # Validate level if provided
     if "level" in update_data:
         level_exists = await levels_collection.find_one({"name": update_data["level"]})
         if not level_exists:
             raise HTTPException(status_code=400, detail="Invalid level")
 
-    # Handle profile image upload
     if profileImage:
         file_content = await profileImage.read()
         profile_image_url = upload_to_cloudinary(file_content, "profiles")
@@ -930,10 +994,10 @@ async def update_user_profile(
     if result.matched_count == 0:
         raise HTTPException(status_code=404, detail="User not found")
 
-    # Fetch updated user
     updated_user = await users_collection.find_one({"_id": ObjectId(current_user["_id"])})
     user_data = {**updated_user, "id": str(updated_user["_id"])}
     return UserResponse(**user_data)
+
 
 # Election routes
 @app.get("/api/v1/elections/current", response_model=Optional[ElectionResponse])
@@ -952,6 +1016,7 @@ async def get_current_election(current_user: dict = Depends(get_current_user)):
         return ElectionResponse(**election_data)
     return None
 
+
 @app.get("/api/v1/elections", response_model=List[ElectionResponse])
 async def get_elections(current_user: dict = Depends(get_current_user)):
     query = {
@@ -966,6 +1031,7 @@ async def get_elections(current_user: dict = Depends(get_current_user)):
         elections.append(ElectionResponse(**election_data))
     return elections
 
+
 # Admin routes for election management
 @app.post("/api/v1/admin/elections", response_model=dict)
 async def create_election(
@@ -974,12 +1040,10 @@ async def create_election(
 ):
     election_dict = election_data.dict()
 
-    # Validate election_type
     election_type_exists = await election_types_collection.find_one({"key": election_dict["election_type"]})
     if not election_type_exists:
         raise HTTPException(status_code=400, detail="Invalid election type")
 
-    # Validate department for departmental elections
     if election_dict["election_type"] == "departmental":
         if not election_dict["department"]:
             raise HTTPException(status_code=400, detail="Department is required for departmental elections")
@@ -987,7 +1051,7 @@ async def create_election(
         if not department_exists:
             raise HTTPException(status_code=400, detail="Invalid department")
     else:
-        election_dict["department"] = None  # Ensure department is null for non-departmental elections
+        election_dict["department"] = None
 
     election_dict["created_at"] = datetime.utcnow()
     election_dict["updated_at"] = datetime.utcnow()
@@ -997,24 +1061,22 @@ async def create_election(
 
     return {"message": "Election created successfully", "election_id": str(result.inserted_id)}
 
+
 @app.put("/api/v1/admin/elections/{election_id}", response_model=dict)
 async def update_election(
         election_id: str,
         election_data: ElectionUpdate,
         admin_user: dict = Depends(get_admin_user)
 ):
-    # Filter out None values to only update provided fields
     update_dict = {k: v for k, v in election_data.dict().items() if v is not None}
     if not update_dict:
         raise HTTPException(status_code=400, detail="No fields provided for update")
 
-    # Validate election_type if provided
     if "election_type" in update_dict:
         election_type_exists = await election_types_collection.find_one({"key": update_dict["election_type"]})
         if not election_type_exists:
             raise HTTPException(status_code=400, detail="Invalid election type")
 
-        # Validate department if election_type is departmental
         if update_dict["election_type"] == "departmental":
             if "department" not in update_dict or not update_dict["department"]:
                 raise HTTPException(status_code=400, detail="Department is required for departmental elections")
@@ -1036,6 +1098,7 @@ async def update_election(
 
     return {"message": "Election updated successfully"}
 
+
 @app.delete("/api/v1/admin/elections/{election_id}", response_model=dict)
 async def delete_election(
         election_id: str,
@@ -1048,6 +1111,7 @@ async def delete_election(
 
     return {"message": "Election deleted successfully"}
 
+
 # Election Type and Position Management Routes
 @app.get("/api/v1/admin/election-types", response_model=List[ElectionTypeResponse])
 async def get_admin_election_types(admin_user: dict = Depends(get_admin_user)):
@@ -1056,6 +1120,7 @@ async def get_admin_election_types(admin_user: dict = Depends(get_admin_user)):
         election_type_data = {**election_type, "id": str(election_type["_id"])}
         election_types.append(ElectionTypeResponse(**election_type_data))
     return election_types
+
 
 @app.post("/api/v1/admin/election-types", response_model=dict)
 async def create_election_type(
@@ -1071,13 +1136,13 @@ async def create_election_type(
 
     return {"message": "Election type created successfully", "election_type_id": str(result.inserted_id)}
 
+
 @app.put("/api/v1/admin/election-types/{election_type_id}", response_model=dict)
 async def update_election_type(
         election_type_id: str,
         election_type_data: ElectionTypeUpdate,
         admin_user: dict = Depends(get_admin_user)
 ):
-    # Filter out None values to only update provided fields
     update_dict = {k: v for k, v in election_type_data.dict().items() if v is not None}
     if not update_dict:
         raise HTTPException(status_code=400, detail="No fields provided for update")
@@ -1094,6 +1159,7 @@ async def update_election_type(
 
     return {"message": "Election type updated successfully"}
 
+
 @app.delete("/api/v1/admin/election-types/{election_type_id}", response_model=dict)
 async def delete_election_type(
         election_type_id: str,
@@ -1105,6 +1171,7 @@ async def delete_election_type(
         raise HTTPException(status_code=404, detail="Election type not found")
 
     return {"message": "Election type deleted successfully"}
+
 
 @app.get("/api/v1/admin/positions", response_model=List[PositionResponse])
 async def get_admin_positions(
@@ -1121,6 +1188,7 @@ async def get_admin_positions(
         positions.append(PositionResponse(**position_data))
     return positions
 
+
 @app.post("/api/v1/admin/positions", response_model=dict)
 async def create_position(
         position_data: PositionCreate,
@@ -1135,13 +1203,13 @@ async def create_position(
 
     return {"message": "Position created successfully", "position_id": str(result.inserted_id)}
 
+
 @app.put("/api/v1/admin/positions/{position_id}", response_model=dict)
 async def update_position(
         position_id: str,
         position_data: PositionUpdate,
         admin_user: dict = Depends(get_admin_user)
 ):
-    # Filter out None values to only update provided fields
     update_dict = {k: v for k, v in position_data.dict().items() if v is not None}
     if not update_dict:
         raise HTTPException(status_code=400, detail="No fields provided for update")
@@ -1158,6 +1226,7 @@ async def update_position(
 
     return {"message": "Position updated successfully"}
 
+
 @app.delete("/api/v1/admin/positions/{position_id}", response_model=dict)
 async def delete_position(
         position_id: str,
@@ -1169,6 +1238,7 @@ async def delete_position(
         raise HTTPException(status_code=404, detail="Position not found")
 
     return {"message": "Position deleted successfully"}
+
 
 # Candidate routes
 @app.get("/api/v1/candidates", response_model=List[CandidateResponse])
@@ -1191,7 +1261,6 @@ async def get_candidates(
     if position:
         query["position"] = position
 
-    # Restrict to elections the user can view
     election_ids = []
     async for election in elections_collection.find({
         "$or": [
@@ -1208,6 +1277,7 @@ async def get_candidates(
         candidates.append(CandidateResponse(**candidate_data))
     return candidates
 
+
 @app.get("/api/v1/positions", response_model=dict)
 async def get_positions(
         election_id: Optional[str] = None,
@@ -1222,7 +1292,6 @@ async def get_positions(
         if election_type == "departmental":
             query["department"] = current_user["department"]
 
-    # Restrict to elections the user can view
     election_ids = []
     async for election in elections_collection.find({
         "$or": [
@@ -1235,6 +1304,7 @@ async def get_positions(
 
     positions = await candidates_collection.distinct("position", query)
     return {"positions": positions}
+
 
 @app.get("/api/v1/elections/types", response_model=dict)
 async def get_election_types():
@@ -1277,6 +1347,7 @@ async def get_election_types():
 
     return election_types
 
+
 @app.post("/api/v1/admin/candidates", response_model=dict)
 async def create_candidate(
         fullName: str = Form(...),
@@ -1289,16 +1360,13 @@ async def create_candidate(
         photo: Optional[UploadFile] = File(None),
         admin_user: dict = Depends(get_admin_user)
 ):
-    # Validate election
     election = await elections_collection.find_one({"_id": ObjectId(election_id)})
     if not election:
         raise HTTPException(status_code=404, detail="Election not found")
 
-    # Validate election_type
     if election["election_type"] != election_type:
         raise HTTPException(status_code=400, detail="Election type mismatch")
 
-    # Validate department for departmental elections
     if election_type == "departmental":
         if not department or department != election["department"]:
             raise HTTPException(status_code=400, detail="Department must match the election's department")
@@ -1334,6 +1402,7 @@ async def create_candidate(
 
     return {"message": "Candidate created successfully", "candidate_id": str(result.inserted_id)}
 
+
 # Voting routes
 @app.post("/api/v1/votes", response_model=dict)
 async def cast_vote(
@@ -1350,11 +1419,9 @@ async def cast_vote(
     if not election:
         raise HTTPException(status_code=404, detail="Election not found")
 
-    # Validate election status
     if election["status"] != "active":
         raise HTTPException(status_code=400, detail="Election is not active")
 
-    # Validate election_type and department consistency
     if vote_data.election_type != election["election_type"]:
         raise HTTPException(status_code=400, detail="Election type mismatch")
     if vote_data.election_id != str(election["_id"]):
@@ -1393,6 +1460,7 @@ async def cast_vote(
 
     return {"message": "Vote cast successfully"}
 
+
 @app.post("/api/v1/votes/batch", response_model=BatchVoteResponse)
 async def cast_batch_votes(
         vote_data: BatchVoteCreate,
@@ -1418,12 +1486,10 @@ async def cast_batch_votes(
                 failed_votes.append({"candidate_id": candidate_id, "error": "Election not found"})
                 continue
 
-            # Validate election status
             if election["status"] != "active":
                 failed_votes.append({"candidate_id": candidate_id, "error": "Election is not active"})
                 continue
 
-            # Validate election_type and department consistency
             if vote.election_type != election["election_type"]:
                 failed_votes.append({"candidate_id": candidate_id, "error": "Election type mismatch"})
                 continue
@@ -1496,7 +1562,6 @@ async def cast_batch_votes(
         failed_votes=failed_votes
     )
 
-    # If all votes failed, raise a 400 Bad Request
     if response.failed > 0 and response.successful == 0:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -1504,6 +1569,7 @@ async def cast_batch_votes(
         )
 
     return response
+
 
 @app.get("/api/v1/votes/status", response_model=VotingStatusResponse)
 async def get_voting_status(
@@ -1526,6 +1592,7 @@ async def get_voting_status(
         total_votes=len(voted_positions)
     )
 
+
 # Results routes
 @app.get("/api/v1/results", response_model=List[CandidateResponse])
 async def get_results(
@@ -1544,7 +1611,6 @@ async def get_results(
     if election_type == "departmental":
         query["department"] = current_user["department"]
 
-    # Restrict to elections the user can view
     election_ids = []
     async for election in elections_collection.find({
         "$or": [
@@ -1561,6 +1627,7 @@ async def get_results(
         results.append(CandidateResponse(**candidate_data))
     return results
 
+
 # Announcements routes
 @app.get("/api/v1/announcements", response_model=List[AnnouncementResponse])
 async def get_announcements():
@@ -1569,6 +1636,7 @@ async def get_announcements():
         announcement_data = {**announcement, "id": str(announcement["_id"])}
         announcements.append(AnnouncementResponse(**announcement_data))
     return announcements
+
 
 @app.post("/api/v1/admin/announcements", response_model=dict)
 async def create_announcement(
@@ -1583,6 +1651,7 @@ async def create_announcement(
 
     return {"message": "Announcement created successfully", "announcement_id": str(result.inserted_id)}
 
+
 # Department management routes
 @app.get("/api/v1/departments", response_model=List[DepartmentResponse])
 async def get_departments():
@@ -1591,6 +1660,7 @@ async def get_departments():
         dept_data = {**dept, "id": str(dept["_id"])}
         departments.append(DepartmentResponse(**dept_data))
     return departments
+
 
 @app.post("/api/v1/admin/departments", response_model=dict)
 async def create_department(
@@ -1604,6 +1674,7 @@ async def create_department(
 
     return {"message": "Department created successfully", "department_id": str(result.inserted_id)}
 
+
 # Level management routes
 @app.get("/api/v1/levels", response_model=List[LevelResponse])
 async def get_levels():
@@ -1612,6 +1683,7 @@ async def get_levels():
         level_data = {**level, "id": str(level["_id"])}
         levels.append(LevelResponse(**level_data))
     return levels
+
 
 @app.post("/api/v1/admin/levels", response_model=dict)
 async def create_level(
@@ -1625,6 +1697,8 @@ async def create_level(
 
     return {"message": "Level created successfully", "level_id": str(result.inserted_id)}
 
+
 if __name__ == "__main__":
     import uvicorn
+
     uvicorn.run(app, host="0.0.0.0", port=8000)
