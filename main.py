@@ -770,7 +770,7 @@ async def get_reset_password_form(request: Request, token: str):
 
     if not reset_token:
         logger.warning(f"Invalid or expired reset token: {token}")
-        html_content = f"""
+        html_content = """
         <!DOCTYPE html>
         <html lang="en">
         <head>
@@ -778,34 +778,34 @@ async def get_reset_password_form(request: Request, token: str):
             <meta name="viewport" content="width=device-width, initial-scale=1.0">
             <title>Reset Password - NUESA Voting System</title>
             <style>
-                body {{
+                body {
                     font-family: Arial, sans-serif;
                     max-width: 600px;
                     margin: 20px auto;
                     padding: 20px;
                     background-color: #f4f4f4;
-                }}
-                .container {{
+                }
+                .container {
                     background-color: #ffffff;
                     padding: 20px;
                     border-radius: 8px;
                     box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-                }}
-                h2 {{
+                }
+                h2 {
                     color: #333333;
                     text-align: center;
-                }}
-                .error {{
+                }
+                .error {
                     color: red;
                     text-align: center;
                     margin-bottom: 15px;
-                }}
-                .footer {{
+                }
+                .footer {
                     text-align: center;
                     color: #999999;
                     font-size: 12px;
                     margin-top: 20px;
-                }}
+                }
             </style>
         </head>
         <body>
@@ -875,6 +875,18 @@ async def get_reset_password_form(request: Request, token: str):
             button:hover {{
                 background-color: #4338ca;
             }}
+            .error-message {{
+                color: red;
+                text-align: center;
+                margin-top: 10px;
+                display: none;
+            }}
+            .success-message {{
+                color: green;
+                text-align: center;
+                margin-top: 10px;
+                display: none;
+            }}
             .footer {{
                 text-align: center;
                 color: #999999;
@@ -886,18 +898,59 @@ async def get_reset_password_form(request: Request, token: str):
     <body>
         <div class="container">
             <h2>Reset Your Password</h2>
-            <form method="POST" action="{BASE_URL}/api/v1/auth/reset-password">
-                <input type="hidden" name="token" value="{token}">
+            <form id="reset-password-form">
+                <input type="hidden" id="token" value="{token}">
                 <div class="form-group">
                     <label for="new_password">New Password</label>
                     <input type="password" id="new_password" name="new_password" required minlength="8">
                 </div>
                 <button type="submit">Reset Password</button>
             </form>
+            <p id="error-message" class="error-message"></p>
+            <p id="success-message" class="success-message"></p>
             <div class="footer">
                 © 2025 NUESA Voting System. All rights reserved.
             </div>
         </div>
+        <script>
+            document.getElementById('reset-password-form').addEventListener('submit', async (e) => {{
+                e.preventDefault();
+                const token = document.getElementById('token').value;
+                const newPassword = document.getElementById('new_password').value;
+                const errorMessage = document.getElementById('error-message');
+                const successMessage = document.getElementById('success-message');
+
+                errorMessage.style.display = 'none';
+                successMessage.style.display = 'none';
+
+                try {{
+                    const response = await fetch('{BASE_URL}/api/v1/auth/reset-password', {{
+                        method: 'POST',
+                        headers: {{
+                            'Content-Type': 'application/json',
+                            'Accept': 'application/json'
+                        }},
+                        body: JSON.stringify({{
+                            token: token,
+                            new_password: newPassword
+                        }})
+                    }});
+
+                    const data = await response.json();
+
+                    if (!response.ok) {{
+                        throw new Error(data.detail || 'Failed to reset password');
+                    }}
+
+                    successMessage.textContent = data.message || 'Password reset successfully';
+                    successMessage.style.display = 'block';
+                    document.getElementById('reset-password-form').reset();
+                }} catch (error) {{
+                    errorMessage.textContent = error.message;
+                    errorMessage.style.display = 'block';
+                }}
+            }});
+        </script>
     </body>
     </html>
     """
